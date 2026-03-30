@@ -1,0 +1,15 @@
+[project]
+name = "meta-runner-2"
+version = "0.1.0"
+description = "Agentic Netrunner meta learning agent — teaches metagame concepts through adaptive quizzing with memory, planning, and initiative"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+]
