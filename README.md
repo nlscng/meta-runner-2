@@ -22,6 +22,7 @@ src/
   meta_concepts.py    — Concepts catalog, SM-2 scheduling, concept memory
   review_index.py     — Lightweight keyword search over NRDB community reviews
   quiz_agent.py       — CLI agent with memory, planning, and initiative
+  web_ui.py           — Gradio browser UI with chat + card image display
 data/
   reviews.json        — Cached NRDB reviews (fetched once, gitignored)
   concept_memory.json — User's concept understanding (gitignored)
@@ -31,6 +32,7 @@ tests/
   test_meta_concepts.py — SM-2 algorithm, concept selection, catalog I/O
   test_review_index.py  — Review search and card mention extraction
   test_quiz_agent.py    — Agent behaviors: session planning, concept questions, course correction
+  test_web_ui.py        — Web UI agent response and card display
 ```
 
 ## Setup
@@ -45,8 +47,11 @@ uv sync
 # Fetch card data, decklists, and reviews
 uv run python -m src.card_data
 
-# Start the meta learning agent
+# Start the CLI agent
 uv run python -m src.quiz_agent
+
+# Or start the web UI (opens in browser at http://localhost:7860)
+uv run python -m src.web_ui
 ```
 
 ## Sample Session
