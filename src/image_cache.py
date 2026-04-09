@@ -99,29 +99,43 @@ class ImageCache:
         # replacement has been written successfully.
         stale_exists = img_path.exists()
 
-        image_bytes = self._fetch(code)
-        if image_bytes is None:
-            return str(img_path) if stale_exists else None
+        # Per-code lock prevents redundant concurrent fetches for the same card
+        with diskcache.Lock(self._meta, f"fetch:{code}", expire=30):
+            # Double-check after acquiring lock — another thread may have filled it
+            if self._meta.get(code) is not None and img_path.exists():
+                return str(img_path)
 
-        # Atomic write: temp file → rename avoids partial reads under concurrency
-        fd, tmp = tempfile.mkstemp(dir=self._images_dir, suffix=".tmp")
-        try:
-            os.write(fd, image_bytes)
-            os.close(fd)
-            os.replace(tmp, str(img_path))
-        except BaseException:
-            os.close(fd) if not os.get_inheritable(fd) else None
-            Path(tmp).unlink(missing_ok=True)
-            raise
+            image_bytes = self._fetch(code)
+            if image_bytes is None:
+                return str(img_path) if stale_exists else None
 
-        self._meta.set(code, True, expire=self._ttl)
+            # Atomic write: temp file → rename avoids partial reads
+            fd, tmp = tempfile.mkstemp(dir=self._images_dir, suffix=".tmp")
+            try:
+                os.write(fd, image_bytes)
+                os.close(fd)
+                os.replace(tmp, str(img_path))
+            except BaseException:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                Path(tmp).unlink(missing_ok=True)
+                raise
+
+            self._meta.set(code, True, expire=self._ttl)
         return str(img_path)
 
-    def get_url(self, code: str) -> str:
-        """Return a serveable URL — local path if cached, remote otherwise."""
+    def get_url(self, code: str, gradio_prefix: bool = True) -> str:
+        """Return a serveable URL — Gradio file route if cached, remote otherwise.
+
+        When ``gradio_prefix`` is True (default), local paths are returned with
+        the ``/file=`` prefix so Gradio can serve them to the browser via its
+        static file proxy.
+        """
         local = self.get_image_path(code)
         if local and os.path.exists(local):
-            return local
+            return f"/file={local}" if gradio_prefix else local
         return NRDB_IMAGE_URL.format(code=code)
 
     def warm(self, codes: list[str]) -> dict[str, bool]:

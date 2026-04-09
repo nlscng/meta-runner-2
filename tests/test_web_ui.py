@@ -38,7 +38,7 @@ def _make_web_agent(populated_db, concepts=None, memory=None, reviews=None):
 class _StubImageCache:
     """Minimal image cache stub that returns remote URLs without network access."""
 
-    def get_url(self, code):
+    def get_url(self, code, gradio_prefix=True):
         return f"https://card-images.netrunnerdb.com/v2/large/{code}.jpg"
 
     def get_image_path(self, code):

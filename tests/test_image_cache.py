@@ -283,11 +283,20 @@ class TestStatsAndWarm:
 # ---------------------------------------------------------------------------
 
 class TestGetUrl:
-    def test_returns_local_path_when_cached(self, cache, monkeypatch):
+    def test_returns_gradio_file_url_when_cached(self, cache, monkeypatch):
         resp = _ok_response()
         monkeypatch.setattr(httpx, "get", lambda *a, **kw: resp)
 
         url = cache.get_url("01005")
+        assert url.startswith("/file=")
+        assert "01005.jpg" in url
+
+    def test_returns_raw_path_when_gradio_prefix_disabled(self, cache, monkeypatch):
+        resp = _ok_response()
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: resp)
+
+        url = cache.get_url("01005", gradio_prefix=False)
+        assert not url.startswith("/file=")
         assert "01005.jpg" in url
         assert not url.startswith("http")
 
