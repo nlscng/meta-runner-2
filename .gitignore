@@ -4,6 +4,7 @@ __pycache__/
 *.db
 data/reviews.json
 data/concept_memory.json
+data/card_images/
 .pytest_cache/
 .coverage
 htmlcov/
