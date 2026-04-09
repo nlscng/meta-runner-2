@@ -111,18 +111,16 @@ class ImageCache:
                 return str(img_path) if stale_exists else None
 
             # Atomic write: temp file → rename avoids partial reads
-            fd, tmp = tempfile.mkstemp(dir=self._images_dir, suffix=".tmp")
+            tmp = None
             try:
-                os.write(fd, image_bytes)
-                os.close(fd)
+                fd, tmp = tempfile.mkstemp(dir=self._images_dir, suffix=".tmp")
+                with os.fdopen(fd, "wb") as f:
+                    f.write(image_bytes)
                 os.replace(tmp, str(img_path))
-            except BaseException:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-                Path(tmp).unlink(missing_ok=True)
-                raise
+                tmp = None  # rename succeeded, don't clean up
+            finally:
+                if tmp is not None:
+                    Path(tmp).unlink(missing_ok=True)
 
             self._meta.set(code, True, expire=self._ttl)
         return str(img_path)
