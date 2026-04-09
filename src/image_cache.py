@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 NRDB_IMAGE_URL = "https://card-images.netrunnerdb.com/v2/large/{code}.jpg"
 
-# Defaults — override via environment or constructor args
+# Defaults — override via constructor args
 DEFAULT_CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "card_images")
 DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 DEFAULT_SIZE_LIMIT_MB = 500  # 500 MB (~2500 images × ~150 KB avg, with headroom)
@@ -37,8 +37,9 @@ class ImageCache:
     Image files are stored as ``{code}.jpg`` in ``cache_dir/images/`` — a
     dedicated subdirectory that Gradio can serve via ``allowed_paths``
     without exposing internal metadata.  A diskcache index (in
-    ``cache_dir/_meta/``) tracks TTL and eviction; when an entry expires
-    the corresponding image file is cleaned up.
+    ``cache_dir/_meta/``) tracks TTL and eviction metadata.  Call
+    ``prune()`` periodically to remove orphaned image files whose
+    metadata has expired.
 
     Parameters
     ----------

@@ -59,7 +59,7 @@ class TestCacheBasics:
         assert path is not None
         assert os.path.exists(path)
         assert path.endswith("01005.jpg")
-        assert "/images/" in path
+        assert str(cache.images_dir) in path
         with open(path, "rb") as f:
             assert f.read() == FAKE_JPEG
 
