@@ -15,7 +15,6 @@ from src.card_data import init_db, compute_meta_stats
 def _make_web_agent(populated_db, concepts=None, memory=None, reviews=None):
     """Build a WebAgent with test data injected."""
     from src.web_ui import WebAgent
-    from src.image_cache import ImageCache
 
     with patch.object(WebAgent, "__init__", lambda self: None):
         agent = WebAgent.__new__(WebAgent)

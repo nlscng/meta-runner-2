@@ -3,8 +3,8 @@ Image cache layer for Netrunner card images.
 
 Lazy-fetches card images from NetrunnerDB on first display and stores them
 on disk with a configurable TTL.  Uses `diskcache` for TTL tracking and
-eviction metadata, while image files live as plain `{code}.jpg` files in the
-cache directory for direct serving by Gradio.
+eviction metadata, while image files live as plain `{code}.jpg` files in a
+dedicated ``images/`` subdirectory for direct serving by Gradio.
 
 Scaling path: swap diskcache.Cache for diskcache.FanoutCache (sharded) or
 replace the backend with Redis/S3 behind the same get/put interface.
@@ -12,6 +12,8 @@ replace the backend with Redis/S3 behind the same get/put interface.
 
 import logging
 import os
+import re
+import tempfile
 from pathlib import Path
 
 import diskcache
@@ -26,24 +28,28 @@ DEFAULT_CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "card_
 DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 DEFAULT_SIZE_LIMIT_MB = 500  # 500 MB (~2500 images × ~150 KB avg, with headroom)
 
+_CODE_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
 
 class ImageCache:
     """Disk-backed image cache with TTL expiry.
 
-    Image files are stored as ``{code}.jpg`` in ``cache_dir`` for direct
-    serving.  A diskcache index (in a ``_meta/`` subdirectory) tracks TTL
-    and eviction — when an entry expires, both the metadata and the image
-    file are cleaned up.
+    Image files are stored as ``{code}.jpg`` in ``cache_dir/images/`` — a
+    dedicated subdirectory that Gradio can serve via ``allowed_paths``
+    without exposing internal metadata.  A diskcache index (in
+    ``cache_dir/_meta/``) tracks TTL and eviction; when an entry expires
+    the corresponding image file is cleaned up.
 
     Parameters
     ----------
     cache_dir : str | Path
-        Directory for cached image files.  Created automatically.
+        Root directory for the cache.  Created automatically.
     ttl : int
         Time-to-live in seconds for each cached image.
     size_limit_mb : int
-        Maximum metadata cache size in bytes (images on disk are managed
-        separately via eviction callbacks).
+        Maximum metadata cache size in megabytes.  Image file pruning
+        is driven by metadata eviction — when diskcache evicts an entry
+        under LRU pressure, ``prune()`` removes the orphaned file.
     """
 
     def __init__(
@@ -53,9 +59,9 @@ class ImageCache:
         size_limit_mb: int = DEFAULT_SIZE_LIMIT_MB,
     ):
         self._cache_dir = Path(cache_dir).resolve()
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._images_dir = self._cache_dir / "images"
+        self._images_dir.mkdir(parents=True, exist_ok=True)
         self._ttl = ttl
-        # Metadata-only cache in a subdirectory to avoid polluting the image dir
         self._meta = diskcache.Cache(
             str(self._cache_dir / "_meta"),
             size_limit=size_limit_mb * 1024 * 1024,
@@ -65,6 +71,11 @@ class ImageCache:
     @property
     def cache_dir(self) -> Path:
         return self._cache_dir
+
+    @property
+    def images_dir(self) -> Path:
+        """Directory containing serveable image files (for ``allowed_paths``)."""
+        return self._images_dir
 
     # ------------------------------------------------------------------
     # Public API
@@ -77,20 +88,32 @@ class ImageCache:
         404, etc.).  The caller should fall back to the remote URL in that
         case.
         """
+        self._validate_code(code)
         img_path = self._image_file(code)
 
         # Check metadata for TTL validity
         if self._meta.get(code) is not None and img_path.exists():
             return str(img_path)
 
-        # Stale or missing — clean up and re-fetch
-        img_path.unlink(missing_ok=True)
+        # Stale or missing — re-fetch, but keep any existing file until a
+        # replacement has been written successfully.
+        stale_exists = img_path.exists()
 
         image_bytes = self._fetch(code)
         if image_bytes is None:
-            return None
+            return str(img_path) if stale_exists else None
 
-        img_path.write_bytes(image_bytes)
+        # Atomic write: temp file → rename avoids partial reads under concurrency
+        fd, tmp = tempfile.mkstemp(dir=self._images_dir, suffix=".tmp")
+        try:
+            os.write(fd, image_bytes)
+            os.close(fd)
+            os.replace(tmp, str(img_path))
+        except BaseException:
+            os.close(fd) if not os.get_inheritable(fd) else None
+            Path(tmp).unlink(missing_ok=True)
+            raise
+
         self._meta.set(code, True, expire=self._ttl)
         return str(img_path)
 
@@ -110,6 +133,7 @@ class ImageCache:
 
     def evict(self, code: str) -> bool:
         """Remove a single entry.  Returns True if it existed."""
+        self._validate_code(code)
         existed = self._meta.delete(code)
         self._image_file(code).unlink(missing_ok=True)
         return existed
@@ -118,14 +142,23 @@ class ImageCache:
         """Drop all cached images. Returns count of evicted entries."""
         count = len(self._meta)
         self._meta.clear()
-        # Remove all .jpg files in the cache directory
-        for jpg in self._cache_dir.glob("*.jpg"):
+        for jpg in self._images_dir.glob("*.jpg"):
             jpg.unlink(missing_ok=True)
         return count
 
+    def prune(self) -> int:
+        """Remove orphaned image files whose metadata has expired."""
+        removed = 0
+        for jpg in self._images_dir.glob("*.jpg"):
+            code = jpg.stem
+            if self._meta.get(code) is None:
+                jpg.unlink(missing_ok=True)
+                removed += 1
+        return removed
+
     def stats(self) -> dict:
         """Cache health summary."""
-        jpg_files = list(self._cache_dir.glob("*.jpg"))
+        jpg_files = list(self._images_dir.glob("*.jpg"))
         total_bytes = sum(f.stat().st_size for f in jpg_files)
         return {
             "entries": len(self._meta),
@@ -142,9 +175,15 @@ class ImageCache:
     # Internals
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _validate_code(code: str) -> None:
+        """Reject codes that could escape the cache directory."""
+        if not _CODE_RE.match(code):
+            raise ValueError(f"Invalid card code: {code!r}")
+
     def _image_file(self, code: str) -> Path:
         """Predictable path for a card image."""
-        return self._cache_dir / f"{code}.jpg"
+        return self._images_dir / f"{code}.jpg"
 
     def _fetch(self, code: str) -> bytes | None:
         """Download card image from NRDB.  Returns bytes or None."""

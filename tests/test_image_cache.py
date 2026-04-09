@@ -1,7 +1,6 @@
 """Tests for src/image_cache.py — disk-backed card image caching."""
 
 import os
-import time
 
 import pytest
 import httpx
@@ -60,6 +59,7 @@ class TestCacheBasics:
         assert path is not None
         assert os.path.exists(path)
         assert path.endswith("01005.jpg")
+        assert "/images/" in path
         with open(path, "rb") as f:
             assert f.read() == FAKE_JPEG
 
@@ -102,15 +102,14 @@ class TestCacheBasics:
 
 
 # ---------------------------------------------------------------------------
-# TTL
+# TTL (deterministic via diskcache expiry, no sleeps)
 # ---------------------------------------------------------------------------
 
 class TestTTL:
-    def test_expired_entry_triggers_refetch(self, tmp_path, monkeypatch):
-        """After TTL expires, the cache should re-fetch on next access."""
-        cache = ImageCache(cache_dir=tmp_path / "ttl_test", ttl=1, size_limit_mb=10)
-        call_count = 0
+    def test_expired_entry_triggers_refetch(self, cache, monkeypatch):
+        """After metadata is expired, the cache should re-fetch on next access."""
         resp = _ok_response()
+        call_count = 0
         def _counting_get(*args, **kwargs):
             nonlocal call_count
             call_count += 1
@@ -120,16 +119,14 @@ class TestTTL:
         cache.get_image_path("01001")
         assert call_count == 1
 
-        # Wait for TTL to expire
-        time.sleep(1.5)
+        # Simulate TTL expiry by deleting metadata directly
+        cache._meta.delete("01001")
 
         cache.get_image_path("01001")
         assert call_count == 2  # had to re-fetch
-        cache.close()
 
-    def test_expired_entry_replaces_stale_file(self, tmp_path, monkeypatch):
+    def test_expired_entry_replaces_stale_file(self, cache, monkeypatch):
         """Image file on disk is replaced with fresh data after TTL expiry."""
-        cache = ImageCache(cache_dir=tmp_path / "stale_test", ttl=1, size_limit_mb=10)
         old_data = b"\xff\xd8\xff\xe0" + b"\x01" * 50
         new_data = b"\xff\xd8\xff\xe0" + b"\x02" * 50
         call_count = 0
@@ -146,12 +143,42 @@ class TestTTL:
         with open(path, "rb") as f:
             assert f.read() == old_data
 
-        time.sleep(1.5)
+        # Simulate TTL expiry
+        cache._meta.delete("01001")
 
         path = cache.get_image_path("01001")
         with open(path, "rb") as f:
             assert f.read() == new_data  # file was refreshed, not stale
-        cache.close()
+
+
+# ---------------------------------------------------------------------------
+# Stale file resilience
+# ---------------------------------------------------------------------------
+
+class TestStaleResilience:
+    def test_stale_file_served_when_refresh_fails(self, cache, monkeypatch):
+        """If a stale file exists but refresh fails, serve the stale file."""
+        resp = _ok_response()
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: resp)
+
+        path = cache.get_image_path("01001")
+        assert path is not None
+        assert os.path.exists(path)
+
+        # Expire metadata
+        cache._meta.delete("01001")
+
+        # Network goes down
+        def _fail(*args, **kwargs):
+            raise httpx.ConnectError("offline")
+        monkeypatch.setattr(httpx, "get", _fail)
+
+        # Should serve stale file instead of returning None
+        result = cache.get_image_path("01001")
+        assert result is not None
+        assert os.path.exists(result)
+        with open(result, "rb") as f:
+            assert f.read() == FAKE_JPEG
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +206,48 @@ class TestErrorHandling:
         monkeypatch.setattr(httpx, "get", _timeout)
 
         assert cache.get_image_path("01001") is None
+
+
+# ---------------------------------------------------------------------------
+# Path traversal protection
+# ---------------------------------------------------------------------------
+
+class TestPathSafety:
+    def test_rejects_path_traversal(self, cache):
+        with pytest.raises(ValueError, match="Invalid card code"):
+            cache.get_image_path("../etc/passwd")
+
+    def test_rejects_slash_in_code(self, cache):
+        with pytest.raises(ValueError, match="Invalid card code"):
+            cache.get_image_path("01001/../../etc")
+
+    def test_accepts_valid_codes(self, cache, monkeypatch):
+        resp = _ok_response()
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: resp)
+        # NRDB codes are typically numeric, but some include letters
+        for code in ["01001", "21001", "alt-art-01"]:
+            assert cache.get_image_path(code) is not None
+
+
+# ---------------------------------------------------------------------------
+# Prune orphaned files
+# ---------------------------------------------------------------------------
+
+class TestPrune:
+    def test_prune_removes_orphaned_images(self, cache, monkeypatch):
+        resp = _ok_response()
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: resp)
+
+        cache.get_image_path("01001")
+        cache.get_image_path("01002")
+
+        # Expire one entry's metadata, leaving the file orphaned
+        cache._meta.delete("01001")
+
+        removed = cache.prune()
+        assert removed == 1
+        assert not (cache.images_dir / "01001.jpg").exists()
+        assert (cache.images_dir / "01002.jpg").exists()
 
 
 # ---------------------------------------------------------------------------

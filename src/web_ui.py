@@ -13,7 +13,7 @@ import sqlite3
 import json
 
 from src.card_data import get_db, init_db, DB_PATH
-from src.image_cache import get_image_cache, NRDB_IMAGE_URL
+from src.image_cache import get_image_cache
 from src.meta_concepts import (
     load_concepts_catalog,
     load_concept_memory,
@@ -466,7 +466,7 @@ def build_ui():
 
 def main():
     app = build_ui()
-    cache_dir = str(get_image_cache().cache_dir)
+    cache_dir = str(get_image_cache().images_dir)
     app.launch(server_name="0.0.0.0", server_port=7860,
                allowed_paths=[cache_dir],
                theme=gr.themes.Soft(primary_hue="blue"))
