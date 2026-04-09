@@ -13,6 +13,7 @@ import sqlite3
 import json
 
 from src.card_data import get_db, init_db, DB_PATH
+from src.image_cache import get_image_cache, NRDB_IMAGE_URL
 from src.meta_concepts import (
     load_concepts_catalog,
     load_concept_memory,
@@ -24,7 +25,6 @@ from src.meta_concepts import (
 )
 from src.review_index import load_reviews, search_reviews
 
-NRDB_CARD_IMG = "https://card-images.netrunnerdb.com/v2/large/{code}.jpg"
 NRDB_CARD_URL = "https://netrunnerdb.com/en/card/{code}"
 
 
@@ -42,6 +42,7 @@ class WebAgent:
         self.catalog = load_concepts_catalog()
         self.memory = load_concept_memory()
         self.reviews = load_reviews()
+        self.image_cache = get_image_cache()
         self.current_question = None
         self.current_concept = None
         self.score = {"correct": 0, "wrong": 0}
@@ -64,7 +65,7 @@ class WebAgent:
         if not row:
             return ""
 
-        img_url = NRDB_CARD_IMG.format(code=code)
+        img_url = self.image_cache.get_url(code)
         card_url = NRDB_CARD_URL.format(code=code)
         title = html_mod.escape(row["title"])
         faction = html_mod.escape(row["faction_code"] or "")
@@ -108,7 +109,7 @@ class WebAgent:
             ).fetchone()
             if not card:
                 continue
-            img_url = NRDB_CARD_IMG.format(code=code)
+            img_url = self.image_cache.get_url(code)
             card_url = NRDB_CARD_URL.format(code=code)
             card_title = html_mod.escape(card["title"])
             card_type = html_mod.escape(card["type_code"] or "")
@@ -465,7 +466,9 @@ def build_ui():
 
 def main():
     app = build_ui()
+    cache_dir = str(get_image_cache().cache_dir)
     app.launch(server_name="0.0.0.0", server_port=7860,
+               allowed_paths=[cache_dir],
                theme=gr.themes.Soft(primary_hue="blue"))
 
 

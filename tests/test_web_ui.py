@@ -15,6 +15,7 @@ from src.card_data import init_db, compute_meta_stats
 def _make_web_agent(populated_db, concepts=None, memory=None, reviews=None):
     """Build a WebAgent with test data injected."""
     from src.web_ui import WebAgent
+    from src.image_cache import ImageCache
 
     with patch.object(WebAgent, "__init__", lambda self: None):
         agent = WebAgent.__new__(WebAgent)
@@ -23,6 +24,8 @@ def _make_web_agent(populated_db, concepts=None, memory=None, reviews=None):
     agent.catalog = concepts or SAMPLE_CONCEPTS.copy()
     agent.memory = memory or {"concepts": {}, "sessions": [], "version": 2}
     agent.reviews = reviews if reviews is not None else SAMPLE_REVIEWS.copy()
+    # Use a stub cache that always returns the remote URL (no network in tests)
+    agent.image_cache = _StubImageCache()
     agent.current_question = None
     agent.current_concept = None
     agent.score = {"correct": 0, "wrong": 0}
@@ -31,6 +34,16 @@ def _make_web_agent(populated_db, concepts=None, memory=None, reviews=None):
     agent.session_tracker = []
     agent._awaiting_grade = False
     return agent
+
+
+class _StubImageCache:
+    """Minimal image cache stub that returns remote URLs without network access."""
+
+    def get_url(self, code):
+        return f"https://card-images.netrunnerdb.com/v2/large/{code}.jpg"
+
+    def get_image_path(self, code):
+        return None
 
 
 @pytest.fixture()
