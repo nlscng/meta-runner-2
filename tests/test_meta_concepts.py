@@ -1,4 +1,4 @@
-"""Tests for src/meta_concepts.py — SM-2 scheduling, concept selection, catalog/memory I/O."""
+"""Tests for src/meta_concepts.py — SM-2 scheduling, concept selection, catalog/memory I/O, key cards resolution."""
 
 import json
 import os
@@ -14,6 +14,8 @@ from src.meta_concepts import (
     save_concepts_catalog,
     load_concept_memory,
     save_concept_memory,
+    resolve_key_cards,
+    _lookup_card_code,
     DEFAULT_CONCEPTS,
 )
 
@@ -158,6 +160,16 @@ class TestCatalogIO:
         loaded = load_concepts_catalog("/tmp/nonexistent_catalog_xyz.json")
         assert loaded == DEFAULT_CONCEPTS
 
+    def test_load_empty_file_returns_defaults(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            f.write("{}")
+            path = f.name
+        try:
+            loaded = load_concepts_catalog(path)
+            assert loaded == DEFAULT_CONCEPTS
+        finally:
+            os.unlink(path)
+
 
 class TestMemoryIO:
     def test_save_and_load_memory(self):
@@ -175,3 +187,94 @@ class TestMemoryIO:
         loaded = load_concept_memory("/tmp/nonexistent_memory_xyz.json")
         assert loaded["concepts"] == {}
         assert loaded["sessions"] == []
+
+
+class TestResolveKeyCards:
+    """Test key_card_names → key_cards resolution via card DB."""
+
+    def test_resolves_matching_titles(self, populated_db, sample_concepts):
+        # "Ice Wall" is in SAMPLE_CARDS with code "01005"
+        resolve_key_cards(sample_concepts, populated_db)
+        assert "01005" in sample_concepts["glacier"]["key_cards"]
+
+    def test_skips_unresolvable_names(self, populated_db):
+        catalog = {
+            "test": {
+                "name": "Test",
+                "key_cards": [],
+                "key_card_names": ["Nonexistent Card XYZ"],
+            }
+        }
+        resolve_key_cards(catalog, populated_db)
+        assert catalog["test"]["key_cards"] == []
+
+    def test_case_insensitive_lookup(self, populated_db):
+        catalog = {
+            "test": {
+                "name": "Test",
+                "key_cards": [],
+                "key_card_names": ["ice wall"],  # lowercase
+            }
+        }
+        resolve_key_cards(catalog, populated_db)
+        assert "01005" in catalog["test"]["key_cards"]
+
+    def test_skips_when_db_empty(self, db_conn):
+        catalog = {
+            "test": {
+                "name": "Test",
+                "key_cards": [],
+                "key_card_names": ["Ice Wall"],
+            }
+        }
+        resolve_key_cards(catalog, db_conn)
+        assert catalog["test"]["key_cards"] == []
+
+    def test_resolves_multiple_cards(self, populated_db):
+        catalog = {
+            "test": {
+                "name": "Test",
+                "key_cards": [],
+                "key_card_names": ["Sure Gamble", "Ice Wall", "Hedge Fund"],
+            }
+        }
+        resolve_key_cards(catalog, populated_db)
+        assert "01001" in catalog["test"]["key_cards"]  # Sure Gamble
+        assert "01005" in catalog["test"]["key_cards"]  # Ice Wall
+        assert "01004" in catalog["test"]["key_cards"]  # Hedge Fund
+        assert len(catalog["test"]["key_cards"]) == 3
+
+    def test_handles_concepts_without_key_card_names(self, populated_db):
+        catalog = {
+            "test": {"name": "Test", "key_cards": [], "sample_questions": []}
+        }
+        resolve_key_cards(catalog, populated_db)
+        assert catalog["test"]["key_cards"] == []
+
+    def test_returns_catalog_for_chaining(self, populated_db, sample_concepts):
+        result = resolve_key_cards(sample_concepts, populated_db)
+        assert result is sample_concepts
+
+
+class TestLookupCardCode:
+    def test_finds_by_exact_title(self, populated_db):
+        code = _lookup_card_code(populated_db, "Ice Wall")
+        assert code == "01005"
+
+    def test_case_insensitive(self, populated_db):
+        code = _lookup_card_code(populated_db, "sure gamble")
+        assert code == "01001"
+
+    def test_returns_none_for_missing(self, populated_db):
+        assert _lookup_card_code(populated_db, "Nonexistent") is None
+
+
+class TestDefaultConceptsKeyCardNames:
+    """Ensure all DEFAULT_CONCEPTS have key_card_names populated."""
+
+    def test_all_concepts_have_key_card_names(self):
+        for cid, concept in DEFAULT_CONCEPTS.items():
+            assert "key_card_names" in concept, f"{cid} missing key_card_names"
+            assert len(concept["key_card_names"]) >= 3, (
+                f"{cid} has only {len(concept['key_card_names'])} key_card_names, expected ≥3"
+            )

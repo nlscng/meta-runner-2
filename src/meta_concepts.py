@@ -10,6 +10,7 @@ concept space the entire system operates on.
 """
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -29,6 +30,7 @@ DEFAULT_CONCEPTS = {
         "category": "archetype",
         "description": "Build tall, taxing servers with expensive ice. Score agendas behind layered defenses. Win by making every run cost more than the runner can sustain.",
         "key_cards": [],
+        "key_card_names": ["Tollbooth", "Eli 1.0", "Border Control", "Nisei MK II", "Ash 2X3ZB9CY"],
         "sample_questions": [
             "Why does glacier prefer expensive, multi-sub ice over cheap end-the-run ice?",
             "What runner strategy is strongest against glacier?",
@@ -41,6 +43,7 @@ DEFAULT_CONCEPTS = {
         "category": "archetype",
         "description": "Score agendas quickly before the runner sets up their rig. Use cheap, taxing ice and fast-advance tools to close the game early.",
         "key_cards": [],
+        "key_card_names": ["Ice Wall", "Enigma", "Vanilla", "Project Atlas"],
         "sample_questions": [
             "What makes a corp deck 'rush' vs 'glacier'?",
             "Why do rush decks prefer cheap ice?",
@@ -53,6 +56,7 @@ DEFAULT_CONCEPTS = {
         "category": "archetype",
         "description": "Score agendas from hand in a single turn using tools that advance or score without needing to protect a remote server over multiple turns.",
         "key_cards": [],
+        "key_card_names": ["Biotic Labor", "SanSan City Grid", "Astroscript Pilot Program", "Seamless Launch"],
         "sample_questions": [
             "What's the fundamental advantage of scoring from hand?",
             "How does fast advance reduce the runner's scoring window?",
@@ -65,6 +69,7 @@ DEFAULT_CONCEPTS = {
         "category": "archetype",
         "description": "Flood the board with assets and upgrades, overwhelming the runner's ability to trash them all. Win through economic attrition.",
         "key_cards": [],
+        "key_card_names": ["PAD Campaign", "Daily Business Show", "Mumba Temple", "Commercial Bankers Group"],
         "sample_questions": [
             "Why is click compression central to asset spam's strategy?",
             "What runner response is most effective against asset spam?",
@@ -77,6 +82,7 @@ DEFAULT_CONCEPTS = {
         "category": "archetype",
         "description": "Win by dealing lethal damage to the runner (net, meat, or brain) rather than scoring 7 agenda points. Often uses traps, punitive operations, or combo kills.",
         "key_cards": [],
+        "key_card_names": ["Snare!", "Punitive Counterstrike", "Neural EMP", "Ronin", "Scorched Earth"],
         "sample_questions": [
             "What should a runner check before running against a suspected kill deck?",
             "Why do kill decks often include never-advance bluffs?",
@@ -89,6 +95,7 @@ DEFAULT_CONCEPTS = {
         "category": "archetype",
         "description": "Apply early pressure with cheap breakers and run events. Deny the corp time to set up. Trade efficiency for speed.",
         "key_cards": [],
+        "key_card_names": ["Sure Gamble", "Dirty Laundry", "Desperado", "Datasucker"],
         "sample_questions": [
             "Why do aggro runners prioritize cheap install costs?",
             "What corp strategy is most vulnerable to early aggression?",
@@ -101,6 +108,7 @@ DEFAULT_CONCEPTS = {
         "category": "archetype",
         "description": "Attack the corp's credit pool to prevent them from rezzing ice, advancing agendas, or executing their game plan.",
         "key_cards": [],
+        "key_card_names": ["Diversion of Funds", "Hippo", "Mining Accident"],
         "sample_questions": [
             "Why is denying corp credits more effective than gaining your own in some matchups?",
             "Name a card that directly attacks corp economy.",
@@ -113,6 +121,7 @@ DEFAULT_CONCEPTS = {
         "category": "archetype",
         "description": "Win by accessing multiple cards from centrals per run. Build toward a big turn where you see many cards from R&D or HQ at once.",
         "key_cards": [],
+        "key_card_names": ["The Maker's Eye", "R&D Interface", "Medium", "Indexing"],
         "sample_questions": [
             "Why is multi-access on R&D stronger than repeated single accesses?",
             "How does the corp defend against deep dig strategies?",
@@ -125,6 +134,7 @@ DEFAULT_CONCEPTS = {
         "category": "strategic-principle",
         "description": "The economic balance between rez cost (what corp pays) and break cost (what runner pays). Glacier works when break cost exceeds rez cost over many runs.",
         "key_cards": [],
+        "key_card_names": ["Tollbooth", "Enigma", "Ice Wall", "Data Raven", "Archer"],
         "sample_questions": [
             "Why does ice with multiple subroutines tend to be more taxing?",
             "How do fixed-strength breakers change ice economics?",
@@ -137,6 +147,7 @@ DEFAULT_CONCEPTS = {
         "category": "strategic-principle",
         "description": "The concept that corps score agendas during moments when the runner can't (or won't) contest the remote — either because they lack the tools, credits, or information.",
         "key_cards": [],
+        "key_card_names": ["Biotic Labor", "Audacity", "Fast Track", "La Costa Grid"],
         "sample_questions": [
             "What creates a scoring window for the corp?",
             "Why is the start of the game often the best scoring window?",
@@ -149,6 +160,7 @@ DEFAULT_CONCEPTS = {
         "category": "strategic-principle",
         "description": "The pace of the game — who is spending their clicks and credits efficiently. Tempo advantage means getting more done per turn than your opponent.",
         "key_cards": [],
+        "key_card_names": ["Sure Gamble", "Hedge Fund", "PAD Campaign", "Dirty Laundry"],
         "sample_questions": [
             "Why is installing a card without clicking to draw it first a tempo advantage?",
             "How do operations that combine draw + credits provide tempo?",
@@ -161,6 +173,7 @@ DEFAULT_CONCEPTS = {
         "category": "strategic-principle",
         "description": "The phases of assembling a breaker suite — from face-checking with no breakers, to partial rig, to fully set up. Each phase changes what servers are safe to run.",
         "key_cards": [],
+        "key_card_names": ["Corroder", "Gordian Blade", "Paperclip", "Self-modifying Code"],
         "sample_questions": [
             "Why is the 'no breakers' phase the most dangerous for the runner?",
             "What does the corp do differently against a fully-rigged runner vs an incomplete rig?",
@@ -173,6 +186,7 @@ DEFAULT_CONCEPTS = {
         "category": "strategic-principle",
         "description": "Netrunner's hidden information creates constant bluffing — is that installed card an agenda or a trap? Reading means inferring what the opponent has based on their actions.",
         "key_cards": [],
+        "key_card_names": ["Snare!", "NGO Front", "Mushin No Shin", "Cerebral Overwriter"],
         "sample_questions": [
             "What information does installing a card in a new remote without ice give the runner?",
             "Why do experienced players track corp credit totals when deciding whether to run?",
@@ -185,6 +199,7 @@ DEFAULT_CONCEPTS = {
         "category": "matchup",
         "description": "The classic tension: glacier wants time to build; aggro wants to end the game before defenses come online. The race between setup speed and run pressure.",
         "key_cards": [],
+        "key_card_names": ["Tollbooth", "Border Control", "Sure Gamble", "Dirty Laundry"],
         "sample_questions": [
             "Why does the aggro runner want to keep the corp poor in this matchup?",
             "At what point does the glacier corp stabilize against aggro?",
@@ -197,6 +212,7 @@ DEFAULT_CONCEPTS = {
         "category": "matchup",
         "description": "Kill decks punish aggressive runners; careful runners trade tempo for safety. The dynamic changes based on how well the runner can read the corp's plan.",
         "key_cards": [],
+        "key_card_names": ["Snare!", "Punitive Counterstrike", "I've Had Worse", "Plascrete Carapace"],
         "sample_questions": [
             "Why do runners keep a full hand against suspected kill decks?",
             "What's the risk of playing too cautiously against a kill deck that's actually a fast advance deck?",
@@ -209,6 +225,7 @@ DEFAULT_CONCEPTS = {
         "category": "meta-knowledge",
         "description": "Understanding how and why the competitive landscape changes — ban lists, new card releases, tournament results, and community adaptation all shift which decks are strong.",
         "key_cards": [],
+        "key_card_names": ["Paperclip", "Engolo", "Zer0", "Crowdfunding"],
         "sample_questions": [
             "Why can a card go from unplayed to dominant without being changed?",
             "How do ban lists reshape the meta beyond just removing specific cards?",
@@ -221,6 +238,7 @@ DEFAULT_CONCEPTS = {
         "category": "meta-knowledge",
         "description": "The influence system forces trade-offs when including out-of-faction cards. Understanding influence economy is key to building competitive decks.",
         "key_cards": [],
+        "key_card_names": ["Sure Gamble", "Hedge Fund", "Daily Casts", "Aumakua"],
         "sample_questions": [
             "Why do players spend influence on economy cards from other factions?",
             "What makes a high-influence card worth the splash?",
@@ -231,10 +249,16 @@ DEFAULT_CONCEPTS = {
 
 
 def load_concepts_catalog(path=CONCEPTS_CATALOG_PATH):
-    """Load concepts catalog from file, falling back to defaults."""
+    """Load concepts catalog from file, falling back to defaults.
+
+    Returns DEFAULT_CONCEPTS when the file is missing or contains an
+    empty object, so the agent always has concepts to operate on.
+    """
     if os.path.exists(path):
         with open(path) as f:
-            return json.load(f)
+            catalog = json.load(f)
+            if catalog:
+                return catalog
     return DEFAULT_CONCEPTS.copy()
 
 
@@ -243,6 +267,58 @@ def save_concepts_catalog(concepts, path=CONCEPTS_CATALOG_PATH):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(concepts, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Key cards resolution — maps human-readable names to card codes
+# ---------------------------------------------------------------------------
+
+def _lookup_card_code(db_conn, title):
+    """Look up a card code by exact title (case-insensitive).
+
+    Returns the card code string, or None if not found.
+    """
+    row = db_conn.execute(
+        "SELECT code FROM cards WHERE LOWER(title) = LOWER(?) LIMIT 1",
+        (title,),
+    ).fetchone()
+    return row["code"] if row else None
+
+
+def resolve_key_cards(catalog, db_conn):
+    """Populate ``key_cards`` from ``key_card_names`` using the card database.
+
+    For each concept that has a ``key_card_names`` list, looks up the
+    corresponding card codes from the cards table.  Cards that aren't in the
+    DB (e.g. rotated or not yet fetched) are silently skipped — this is
+    expected when the DB is partially populated.
+
+    Modifies *catalog* in-place and returns it for convenience.
+    """
+    logger = logging.getLogger(__name__)
+
+    card_count = db_conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
+    if card_count == 0:
+        logger.debug("Card DB is empty — skipping key_cards resolution")
+        return catalog
+
+    for concept_id, concept in catalog.items():
+        names = concept.get("key_card_names", [])
+        if not names:
+            continue
+
+        resolved = []
+        for name in names:
+            code = _lookup_card_code(db_conn, name)
+            if code:
+                resolved.append(code)
+            else:
+                logger.debug(
+                    "Concept %r: card %r not found in DB", concept_id, name
+                )
+        concept["key_cards"] = resolved
+
+    return catalog
 
 
 # ---------------------------------------------------------------------------

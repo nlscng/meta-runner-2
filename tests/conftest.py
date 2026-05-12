@@ -233,6 +233,7 @@ SAMPLE_CONCEPTS = {
         "category": "archetype",
         "description": "Build tall servers with expensive ice. Score behind layered defenses.",
         "key_cards": ["01005"],
+        "key_card_names": ["Ice Wall"],
         "sample_questions": [
             "Why does glacier prefer expensive ice?",
             "What runner strategy counters glacier?",
@@ -244,6 +245,7 @@ SAMPLE_CONCEPTS = {
         "category": "archetype",
         "description": "Score fast before the runner sets up. Use cheap ice and speed.",
         "key_cards": ["01005"],
+        "key_card_names": ["Ice Wall", "Enigma"],
         "sample_questions": [
             "What makes rush different from glacier?",
             "Why do rush decks prefer cheap ice?",
@@ -255,6 +257,7 @@ SAMPLE_CONCEPTS = {
         "category": "strategic-principle",
         "description": "Getting more done per turn than your opponent. Efficiency of clicks and credits.",
         "key_cards": [],
+        "key_card_names": ["Sure Gamble", "Hedge Fund"],
         "sample_questions": [
             "Why is tempo important in Netrunner?",
         ],

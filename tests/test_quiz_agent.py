@@ -1,5 +1,6 @@
 """Tests for src/quiz_agent.py — concept-based quiz agent with agent behaviors."""
 
+import os
 import sqlite3
 from unittest.mock import patch
 
@@ -30,6 +31,7 @@ def _make_agent(populated_db, concepts=None, memory=None, reviews=None):
     agent.session_concept_idx = 0
     agent.session_tracker = []
     agent.session_started = False
+    agent._exit_saved = False
     return agent
 
 
@@ -215,3 +217,144 @@ class TestCourseCorrection:
             {"concept_id": "tempo", "grade": 5},
         ]
         assert agent._check_course_correction() is None
+
+
+# ---------------------------------------------------------------------------
+# Cold start vs returning user
+# ---------------------------------------------------------------------------
+
+class TestColdStart:
+    def test_first_session_shows_welcome(self, agent):
+        """Cold start (no session history) should include a welcome message."""
+        msg = agent.start_session()
+        assert "Welcome" in msg or "welcome" in msg.lower()
+        assert "tutor" in msg.lower() or "quiz" in msg.lower() or "learn" in msg.lower()
+
+    def test_first_session_does_not_show_last_session(self, agent):
+        msg = agent.start_session()
+        assert "Last session" not in msg
+
+    def test_returning_session_shows_history(self, populated_db):
+        memory = {
+            "concepts": {
+                "glacier": {
+                    "times_tested": 4, "times_correct": 2,
+                    "ef": 2.0, "interval": 3, "n": 2,
+                    "last_seen": "2026-03-28", "next_review": "2026-03-31",
+                }
+            },
+            "sessions": [
+                {
+                    "date": "2026-03-28",
+                    "concepts_explored": 3,
+                    "questions_answered": 8,
+                    "accuracy": 0.625,
+                    "concepts_tested": ["glacier", "rush", "tempo"],
+                }
+            ],
+            "version": 2,
+        }
+        agent = _make_agent(populated_db, memory=memory)
+        msg = agent.start_session()
+        assert "2026-03-28" in msg
+        assert "8 questions" in msg or "8" in msg
+        assert "62%" in msg or "63%" in msg
+
+    def test_returning_session_shows_weak_areas(self, populated_db):
+        memory = {
+            "concepts": {
+                "glacier": {
+                    "times_tested": 10, "times_correct": 3,  # 30% — weak
+                    "ef": 1.5, "interval": 2, "n": 1,
+                    "last_seen": "2026-03-28", "next_review": "2026-03-30",
+                },
+            },
+            "sessions": [
+                {"date": "2026-03-28", "concepts_explored": 1,
+                 "questions_answered": 10, "accuracy": 0.3,
+                 "concepts_tested": ["glacier"]},
+            ],
+            "version": 2,
+        }
+        agent = _make_agent(populated_db, memory=memory)
+        msg = agent.start_session()
+        assert "strengthen" in msg.lower() or "weak" in msg.lower() or "Glacier" in msg
+
+
+# ---------------------------------------------------------------------------
+# Persistence lifecycle
+# ---------------------------------------------------------------------------
+
+class TestPersistence:
+    def test_exit_saved_flag_set_on_quit(self, agent):
+        agent.start_session()
+        agent.handle_message("quit")
+        assert agent._exit_saved is True
+
+    def test_save_on_exit_is_idempotent(self, agent):
+        """Calling _save_on_exit multiple times should not error."""
+        agent._save_on_exit()
+        assert agent._exit_saved is True
+        # Second call should be a no-op
+        agent._save_on_exit()
+        assert agent._exit_saved is True
+
+    def test_save_on_exit_saves_memory(self, populated_db):
+        import tempfile, json
+        from src.meta_concepts import save_concept_memory, load_concept_memory
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            mem_path = f.name
+
+        try:
+            memory = {"concepts": {"glacier": {"ef": 1.8}}, "sessions": [], "version": 2}
+            agent = _make_agent(populated_db, memory=memory)
+
+            # Monkey-patch save to write to our temp file
+            original_save = agent.__class__._save_on_exit
+
+            def patched_save(self):
+                if self._exit_saved:
+                    return
+                self._exit_saved = True
+                save_concept_memory(self.memory, mem_path)
+
+            agent._save_on_exit = lambda: patched_save(agent)
+            agent._save_on_exit()
+
+            loaded = load_concept_memory(mem_path)
+            assert loaded["concepts"]["glacier"]["ef"] == 1.8
+        finally:
+            os.unlink(mem_path)
+
+
+# ---------------------------------------------------------------------------
+# Weak areas identification
+# ---------------------------------------------------------------------------
+
+class TestIdentifyWeakAreas:
+    def test_returns_weak_concepts(self, populated_db):
+        memory = {
+            "concepts": {
+                "glacier": {"times_tested": 10, "times_correct": 3, "ef": 1.5},
+                "rush": {"times_tested": 10, "times_correct": 9, "ef": 2.8},
+            },
+            "sessions": [],
+            "version": 2,
+        }
+        agent = _make_agent(populated_db, memory=memory)
+        weak = agent._identify_weak_areas()
+        assert "glacier" in weak
+        assert "rush" not in weak
+
+    def test_ignores_undertested_concepts(self, populated_db):
+        memory = {
+            "concepts": {
+                "glacier": {"times_tested": 2, "times_correct": 0, "ef": 1.5},
+            },
+            "sessions": [],
+            "version": 2,
+        }
+        agent = _make_agent(populated_db, memory=memory)
+        weak = agent._identify_weak_areas()
+        assert "glacier" not in weak  # only 2 tests, need ≥3

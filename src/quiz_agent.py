@@ -11,6 +11,7 @@ in concept-level learning with agent behaviors:
   - Initiative: adds meta commentary connecting answers to strategic reasoning
 """
 
+import atexit
 import random
 import sqlite3
 import json
@@ -25,6 +26,7 @@ from src.meta_concepts import (
     get_concept_state,
     sm2_update,
     select_next_concepts,
+    resolve_key_cards,
 )
 from src.review_index import load_reviews, search_reviews, get_reviews_for_card
 
@@ -41,6 +43,9 @@ class QuizAgent:
         self.memory = load_concept_memory()
         self.reviews = load_reviews()
 
+        # Resolve human-readable key_card_names → card codes from the DB
+        resolve_key_cards(self.catalog, self.db)
+
         self.current_question = None
         self.current_concept = None
         self.score = {"correct": 0, "wrong": 0}
@@ -48,6 +53,19 @@ class QuizAgent:
         self.session_concept_idx = 0
         self.session_tracker = []  # rolling window of recent answers
         self.session_started = False
+        self._exit_saved = False
+
+        atexit.register(self._save_on_exit)
+
+    def _save_on_exit(self):
+        """Save concept memory on interpreter shutdown (atexit / Ctrl+C)."""
+        if self._exit_saved:
+            return
+        self._exit_saved = True
+        try:
+            save_concept_memory(self.memory)
+        except Exception:
+            pass  # best-effort; don't raise during interpreter teardown
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -61,12 +79,44 @@ class QuizAgent:
         )
         self.session_concept_idx = 0
 
+        past_sessions = self.memory.get("sessions", [])
+        is_cold_start = len(past_sessions) == 0
+
         lines = ["=" * 60]
         lines.append("🃏 Meta Runner v2 — Netrunner Meta Learning Agent")
         lines.append("=" * 60)
 
+        if is_cold_start:
+            lines.append(
+                "\n👋 Welcome! I'm your Netrunner metagame tutor. I'll quiz you"
+                " on archetypes, matchups, and strategic concepts — then adapt"
+                " future sessions based on what you know well and what needs work."
+            )
+        else:
+            # Surface last session summary for returning users
+            last = past_sessions[-1]
+            try:
+                accuracy_str = f"{float(last.get('accuracy', 0)):.0%}"
+            except (ValueError, TypeError):
+                accuracy_str = "??%"
+            lines.append(
+                f"\n📊 Last session ({last.get('date', '?')}): "
+                f"{last.get('questions_answered', 0)} questions, "
+                f"{accuracy_str} accuracy"
+            )
+            weak = self._identify_weak_areas()
+            if weak:
+                names = ", ".join(
+                    self.catalog.get(cid, {}).get("name", cid)
+                    for cid in weak[:3]
+                )
+                lines.append(f"  ⚠️ Areas to strengthen: {names}")
+
         if not self.session_concepts:
-            lines.append("\nNo concepts to review — all caught up! Type 'quiz' for a random question.")
+            lines.append(
+                "\nNo concepts to review — all caught up! "
+                "Type 'quiz' for a random question."
+            )
             return "\n".join(lines)
 
         lines.append("\n📋 **Session Plan:**")
@@ -93,6 +143,16 @@ class QuizAgent:
 
         lines.append("\nType 'quiz' to start, 'help' for commands.")
         return "\n".join(lines)
+
+    def _identify_weak_areas(self):
+        """Return concept IDs where accuracy is below 60% with ≥3 attempts."""
+        weak = []
+        for cid, state in self.memory.get("concepts", {}).items():
+            tested = state.get("times_tested", 0)
+            correct = state.get("times_correct", 0)
+            if tested >= 3 and correct / tested < 0.6:
+                weak.append(cid)
+        return weak
 
     # ------------------------------------------------------------------
     # Question generation — concept-driven
@@ -332,6 +392,7 @@ class QuizAgent:
             "concepts_tested": [a["concept_id"] for a in self.session_tracker],
         })
         save_concept_memory(self.memory)
+        self._exit_saved = True  # prevent atexit from double-saving
 
         return f"Thanks for studying! Final score: {self.score['correct']}/{total}. See you next time! 👋"
 
